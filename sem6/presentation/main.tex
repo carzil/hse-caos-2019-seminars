@@ -1,0 +1,193 @@
+\documentclass[10pt,pdf,hyperref={unicode}]{beamer}
+
+\usepackage[normalem]{ulem}
+\usepackage{qrcode}
+\usepackage{array}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{colortbl}
+\usepackage{listings}
+
+\setbeamertemplate{navigation symbols}{}
+
+\usetheme{default}
+
+\title{Семинар 6: Указатели и кодировки}
+\date{10 Декабря, 2019}
+
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Указатели: освежаем в памяти}
+    \begin{itemize}
+        \item Указатель — номер байта в адресном пространстве
+        \item Любой указатель имеет тип (например, \lstinline{int*, long*, ...})
+        \item Разыменовывание (dereference) — обращение к памяти, на которую указывает указатель
+        \item Разыменовывание NULL-указателя — undefined behavior!
+        \item \lstinline{void*} ссылается на что угодно, нельзя разыменовать
+        \item Приведение указателей (casting): \lstinline{void* v = ...; int* a = v;}
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Выравнивание}
+\begin{itemize}
+    \item Говорят, что указатель \emph{выравнен (aligned)}, если адрес, на который он ссылается, кратен $K$ байтам
+    \item $K$ называют \emph{выравниванием указателя (alignment)}
+    \item Или говорят, что \emph{указатель выровнен по границе $K$ байт}
+    \item В современных процессорах обычно используются выравнивания вида $K = 2^N$
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Выравнивание: зачем?}
+\begin{itemize}
+    \item Некоторые процессоры читают память по выровненным адресам быстрее
+    \item Некоторые процессоры читают память \emph{только} по выровненным адресам
+    \item Если пишите переносимый (portable) код, то лучше всё выравнивать как надо!
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Выравнивание скалярных типов в C}
+\begin{itemize}
+    \item \lstinline{char} выравнивается по границе 1-ого байта (иногда говорят, что у него нет выравнивания)
+    \item \lstinline{short} выравнивается по границе 2-ух байт
+    \item \lstinline{int} и \lstinline{float} выравниваются по границе 4-ёх байт
+    \item Выравнивание остальных типов зависит от битности процессора
+    \item x86: \lstinline{long}, \lstinline{long long} и \lstinline{double} выравниваются по границе 4-ёх байт
+    \item x86-64: \lstinline{long}, \lstinline{long long} и \lstinline{double} выравниваются по границе 8-ми байт
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Выравнивание скалярных типов в C}
+\begin{itemize}
+    \item Массивы, выделенные на стеке имеют выравнивание типа элемента
+    \item \lstinline{malloc} гарантирует, что в выделенная память выровненна так, что в ней можно разместить любой тип
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Выравнивание структур в C}
+\begin{itemize}
+    \item Члены структур располагаются рядом
+    \item Но если им не хватает выравнивания, компилятор «добивает» структуру pad'ами
+    \item Выравнивание структуры — максимальное выравнивание среди всех выравниваний её членов
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Выравнивание: offsetof}
+\begin{lstlisting}[language=c]
+#define offsetof(st, m) ((size_t)&(((st *)0)->m))
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}{Кодировки}
+\begin{itemize}
+    \item character — что-то, что мы хотим представить
+    \item character set — какое-то множество символов
+    \item coded character set (CCS) — отображение символов в уникальные номера
+    \item code point — уникальный номер какого-то символа
+\end{itemize}
+\end{frame}
+
+\begin{frame}{ASCII}
+\begin{itemize}
+    \item American Standard Code for Information Interchange, 1963 год
+    \item 7-ми битная кодировка, то есть кодирует 128 различных символов
+    \item Control characters: c 0 по 31 включительно, непечатные символы, мета-информация для терминалов
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Unicode}
+\begin{itemize}
+    \item Unicode is a computing industry standard for the consistent encoding, representation, and handling of text expressed in most of the world's writing systems.
+    \item Code point'ы обозначаются как U+<число>
+    \item Например: $\times$ = U+00D7, $a$ = U+0061
+    \item Определяет CCS, но не саму кодировку!
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Unicode Charts}
+\center\qrcode[hyperlink,height=75px]{http://www.unicode.org/charts/}
+\end{frame}
+
+\begin{frame}{UTF-8}
+\begin{itemize}
+    \item Unicode Transformation Format
+    \item Определяет способ как будут преобразовываться code point'ы
+    \item Переменная длина: ASCII символы кодируются одним байтом, кириллица — 2-умя
+\end{itemize}
+\end{frame}
+
+\begin{frame}{UTF-8: способ представления}
+\begin{center}
+\begin{tabular}{ |c|c|c|c|c|c| }
+\hline
+Диапазон & Биты & Байт 1 & Байт 2 & Байт 3 & Байт 4 \\
+\hline
+0000-007F & 7 & \lstinline{0xxxxxxx} & -- & -- & -- \\
+\hline
+0080-07FF & 11 & \lstinline{110xxxxx} & \lstinline{10xxxxxx} & -- & -- \\
+\hline
+0800-FFFF & 16 & \lstinline{1110xxxx} & \lstinline{10xxxxxx} & \lstinline{10xxxxxx} & -- \\
+\hline
+10000-10FFFF & 22 & \lstinline{11110xxx} & \lstinline{10xxxxxx} & \lstinline{10xxxxxx} & \lstinline{10xxxxxx} \\
+\hline
+\end{tabular}
+\end{center}
+\end{frame}
+
+\begin{frame}{UTF-8: overlong encoding}
+\begin{itemize}
+    \item Какой code point кодирует последовательность \lstinline{00100000}? \onslide<2->U+0020
+    \onslide<3->\item А вот эта: \lstinline{11000000 10100000}? \onslide<4->Тоже U+0020!
+    \onslide<5->\item Это называется overlong form или overlong encoding
+    \onslide<5->\item С точки зрения стандарта является некорректным представлением
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}{UTF-16}
+\begin{itemize}
+    \item Использует 16 бит (2 байта) для кодировки
+    \item Кодируют 0000-D7FF и E000-FFFF обычными short'ами
+    \item Суррогатная пара для кодировки больших code point'ов: \lstinline{110110xxxxxxxxxx 110111xxxxxxxxxx}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{UTF-16: подводные камни}
+\center\qrcode[hyperlink,height=75px]{https://softwareengineering.stackexchange.com/questions/102205/should-utf-16-be-considered-harmful}
+\end{frame}
+
+\begin{frame}{UTF-8 everywhere!}
+\center\qrcode[hyperlink,height=75px]{http://utf8everywhere.org/}
+\end{frame}
+
+\begin{frame}{UTF-32}
+\begin{itemize}
+    \item Использует 32 бита (4 байта) для кодировки
+    \item Используется во внутреннем представлении строк в некоторых языках (например, Python)
+    \item Позволяет обращаться к произвольному code point'у строки за O(1)
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}{wchar.h}
+\begin{itemize}
+    \item Заголовочный файл для работы с wide strings
+    \item Типы: wchar\_t (вместо char) и wint\_t (вместо char + EOF)
+    \item I/O-операции: wprintf, wscanf, getwc, getws, ...
+    \item Utility functions: wcscmp, wcslen, wcsstr, ...
+    \item Для одного символа: iswalnum, iswalpha, iswdigit, ...
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}
+\center\Huge{Danke!}
+\end{frame}
+
+
+\end{document}

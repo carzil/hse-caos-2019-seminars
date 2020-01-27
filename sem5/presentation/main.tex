@@ -1,0 +1,176 @@
+\documentclass[10pt,pdf,hyperref={unicode}]{beamer}
+
+\usepackage[normalem]{ulem}
+\usepackage{qrcode}
+\usepackage{array}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{colortbl}
+\usepackage{listings}
+
+\setbeamertemplate{navigation symbols}{}
+
+\usetheme{default}
+
+\title{Семинар 5: MEMы}
+\date{3 Декабря, 2019}
+
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Массивы}
+    \begin{itemize}
+        \item Непрерывные куски памяти, элементы располагаются подряд
+        \item Нумерация с нуля
+        \item Массивы размера 0 существуют
+        \item Обращение к элементам за пределами массива — undefined behavior!
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Многомерные массивы}
+    \begin{itemize}
+        \item Многомерные массивы тоже укладываются непрерывно в памяти
+        \item Одномерные: $pos = i$
+        \item Двумерные: $pos = i \times N + j$
+        \item Трёхмерные: $pos = i \times N \times M + j \times N + m$
+        \item K-мерные: $pos = \sum\limits_{i=0}^K idx_i \times k_i$
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Как узнать размер массива?}
+    \onslide<2->\center\Huge\lstinline{sizeof(arr) / sizeof(arr[0])}
+\end{frame}
+
+
+\begin{frame}{Указатели}
+    \begin{itemize}
+        \item Указатель — номер байта в адресном пространстве
+        \item Любой указатель имеет тип (например, \lstinline{int*, long*, ...})
+        \item Разыменовывание (dereference) — обращение к памяти, на которую указывает указатель
+        \item Разыменовывание NULL-указателя — undefined behavior!
+        \item \lstinline{void*} ссылается на что угодно, нельзя разыменовать
+        \item Приведение указателей (casting): \lstinline{void* v = ...; int* a = v;}
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Арифметика указателей}
+    \begin{itemize}
+        \item Сдвиг вправо на N элементов: \lstinline{ptr + N}
+        \item Сдвиг влево на N элементов: \lstinline{ptr - N}
+        \item Количество элементов между двумя указателями: \lstinline{ptr_a - ptr_b}
+    \end{itemize}
+\end{frame}
+
+
+\begin{frame}{Константность указателей}
+    \begin{itemize}
+        \item \lstinline{const char * a;}
+        \item \lstinline{char * const a;}
+        \item \lstinline{const char * const a;}
+    \end{itemize}
+\end{frame}
+
+
+\begin{frame}{Константность указателей}
+    \begin{itemize}
+        \item \lstinline{const char * a;} — неизменяемые данные
+        \item \lstinline{char * const a;} — неизменяемый указатель
+        \item \lstinline{const char * const a;} — «броня не пробита»
+    \end{itemize}
+\end{frame}
+
+
+\begin{frame}{Строки в C}
+    \begin{itemize}
+        \item Строки — непрерывная последовательность байт, оканчивающаяся нулевым байтом (\lstinline{\\0})
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Полезные функции}
+\begin{itemize}
+    \item \lstinline{size_t strlen(const char* s)}
+    \item \lstinline{char* strcpy(char* dest, const char* src)}
+    \item \lstinline{int strcmp(const char* s1, const char* s2)}
+    \item \lstinline{char* strstr(const char* haystack, const char* needle)}
+    \item \lstinline{char* strchr(const char* s, int c)}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Хитрый вопрос...}
+    \Huge\begin{center}
+        \lstinline{char a[] = "Hi, HSE!";} \\
+        \lstinline{strlen(a) == ?}
+        \onslide<2->\lstinline{sizeof(a) == ?}
+    \end{center}
+\end{frame}
+
+
+\begin{frame}{...и простой ответ}
+    \Huge\begin{center}
+        \lstinline{char a[] = "Hi, HSE!";} \\
+        \lstinline{strlen(a) == 8}
+        \lstinline{sizeof(a) == 9}
+    \end{center}
+\end{frame}
+
+\begin{frame}{Полезные функции}
+\begin{itemize}
+    \item \lstinline{void* memset(void* s, int c, size_t n)}
+    \item \lstinline{int memcmp(const void* s1, const void* s2, size_t n)}
+    \item \lstinline{void* memcpy(void* dest, const void* src, size_t num)}
+    \item \lstinline{void* memmove(void* dest, const void* src, size_t num)}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Полезные функции}
+\begin{itemize}
+    \item Старайтесь не использовать str* функции напрямую!
+    \item Если приходится использовать, используйте аналоги с «n» в названии!!
+    \item Указать длину строчки лучше, чем её не указать!!!
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\begin{itemize}
+    \item \lstinline{memset} в некоторых случая может быть удалён компилятором
+    \item Чтобы такого не происходило, есть \lstinline{memset_s}
+    \onslide<2->\item А зачем? \onslide<3-> Криптография!
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}{Динамическое выделение памяти}
+\begin{itemize}
+    \item \lstinline{void* malloc(size_t size)}
+    \item \lstinline{void free(void* ptr)}
+    \item \lstinline{void* realloc(void* ptr, size_t size)}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Ошибки при работе с динамической памятью}
+\begin{itemize}
+    \item memory leaks
+    \item double free
+    \item use-after-free
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Understanding malloc}
+\center\qrcode[hyperlink,height=75px]{https://sploitfun.wordpress.com/2015/02/10/understanding-glibc-malloc/}
+\end{frame}
+
+\begin{frame}
+\center\Huge String workshop
+\end{frame}
+
+
+\begin{frame}
+\center\Huge{Merci!}
+\end{frame}
+
+
+\end{document}

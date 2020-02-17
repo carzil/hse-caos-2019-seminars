@@ -1,0 +1,220 @@
+\documentclass[10pt,pdf,hyperref={unicode}]{beamer}
+
+\usepackage[normalem]{ulem}
+\usepackage{qrcode}
+\usepackage{array}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{colortbl}
+\usepackage{minted}
+\usepackage{listings}
+\usepackage{tcolorbox}
+
+\setbeamertemplate{navigation symbols}{}
+
+\usetheme{default}
+
+\usepackage{array}
+\newcolumntype{L}[1]{>{\raggedright\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{C}[1]{>{\centering\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+
+\definecolor{shadecolor}{RGB}{210,210,210}
+\newcommand{\asm}[1]{\colorbox{shadecolor}{#1}}
+
+\newcommand{\qrlinkframe}[2]{\begin{frame}{#1}
+\center\qrcode[hyperlink,height=75px]{#2}
+\end{frame}}
+
+\title{Семинар 10: Intel x86 assembly. Часть 3}
+\date{27 января, 2020}
+
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{В прошлых сериях...}
+\begin{itemize}
+    \item Registers
+    \item Instructions
+    \item Memory dereferencing
+    \item Stack
+    \item Calling conventions: x86 \& x86-64
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{План на сегодня}
+\begin{center}
+    \begin{minipage}{0.65\textwidth}
+        \begin{minted}{c}
+float hypot_x86(float x, float y);
+float hypot_x86_64(float x, float y);
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{x87: немного истории}
+\begin{itemize}
+    \item Intel 80387 (1987 год) — первый сопроцессор Intel, поддерживающий IEEE754
+    \item Имелся отдельный набор команд (instruction set) для процессоров x86
+    \item С 1991 года расположен на кристалле процессора
+\end{itemize}
+\end{frame}
+
+\begin{frame}{x87: технические детали}
+\begin{itemize}
+    \item x87 имел \textbf{восемь} 64-битных регистров: \asm{st(0)}-\asm{st(1)}
+    \item Регистры образуют стек, \asm{st(0)} -- <<вершина>>
+    \item Инструкции могли оперировать с любыми регистрами
+    \item Но x87 позволял загружать числа из памяти на только в вершину стека и извлекать только из неё в память
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}[fragile]
+\frametitle{x87: пример}
+\begin{center}
+    \begin{minipage}{0.65\textwidth}
+        \begin{minted}[mathescape=true]{gas}
+A: .float 4195835
+B: .float 3145727
+    # ...
+    fld B  # st(0) = B
+    fld A  # st(0) = A, st(1) = B
+    fdivp  # st(0) $\approx$ 1.33382
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+
+\qrlinkframe{Pentium FDIV bug}{https://en.wikipedia.org/wiki/Pentium_FDIV_bug}
+
+\begin{frame}
+\center\Huge{Зачем нужно знать про x87?}
+\end{frame}
+
+\begin{frame}{Соглашения о вызовах под x86}
+\begin{itemize}
+    \item \textbf{float} и \textbf{double} аргументы передаются \textbf{по стеку}
+    \item Возвращаемое значение (\textbf{float} или \textbf{double}) лежит в \asm{st(0)}
+    \item \asm{st(1)}-\asm{st(7)} \textbf{должны быть пустыми} в момент входа функцию и в момент выхода из неё
+\end{itemize}
+\end{frame}
+
+\begin{frame}{SSE}
+\begin{itemize}
+    \item SSE -- \emph{Streaming SIMD Extensions}
+    \item SIMD -- \emph{Single Instruction Multiple Data}
+    \item Набор команд для процессоров Intel
+    \item Впервые появился в Pentium III (1999 год)
+    \item Расширения: SSE2, SSE3, SSE4
+\end{itemize}
+\end{frame}
+
+\begin{frame}{SSE}
+\begin{itemize}
+    \item Добавляет в процессор 8 регистров: \asm{xmm0}-\asm{xmm7}
+    \item Размер каждого -- 128 битов
+    \item Два типа данных -- float (single) и double
+    \item Два режима -- scalar и packed
+\end{itemize}
+\end{frame}
+
+\begin{frame}{SSE: скалярные инструкции}
+\begin{itemize}
+    \item Последние две буквы отвечают за тип инструкции
+    \item xxxSS = scalar single, то есть операция над одним float'ом
+    \item xxxSD = scalar double, то есть операция над одним double'ом
+    \item Например: \asm{addss}, \asm{subsd}, \asm{divss}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{SSE: packed инструкции}
+\begin{itemize}
+    \item xxxPS = packed single
+    \item xxxPD = packed double
+    \item Оперируют сразу несколькими числами в одном регистре: 4 float или 2 double
+    \item Отсюда и название -- \emph{single instruction multiple data}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{SSE: чтение данных}
+\begin{itemize}
+    \item \asm{movupX} читает невыровненные данные
+    \item \asm{movapX} -- выровненные по 16 байт
+    \item Для скалярных типов используются \asm{movsX}, которые не требуют выравнивания
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Соглашения о вызовах под x86-64}
+\begin{itemize}
+    \item \textbf{float} и \textbf{double} аргументы передаются в \asm{xmm0}-\asm{xmm7}
+    \item Если больше 8 аргументов, то остальные -- по стеку
+    \item Возвращаемое значение (\textbf{float} или \textbf{double}) лежит в \asm{xmm0}
+    \item Все xmm-регистры являются caller-saved
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Если очень хочется использовать SSE под x86}
+\begin{center}
+    \begin{minipage}{0.9\textwidth}
+        \begin{minted}[mathescape=true]{gas}
+    sub $8, %esp         # немного места на стеке
+    movsd %xmm0, (%esp)  # сохраняем результат на стек
+    fldl (%esp)          # сохраняем рехультат в st(0)
+    add $8, %esp
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Intrinsics}
+    \begin{itemize}
+        \item Иногда писать на голом ассемблере очень трудно
+        \item Intel разработал специальные расширения для компиляторов — intrinsics
+        \item В каждом компиляторе реализованы по-разному
+        \item Можно писать код на С, оптимизируя медленные места с помощью C-подобных функций
+    \end{itemize}
+\end{frame}
+
+\qrlinkframe{Intel Intrinsics Guide}{https://software.intel.com/sites/landingpage/IntrinsicsGuide/}
+
+\begin{frame}[fragile]
+\frametitle{Как сравнивать вещественные числа?}
+С помощью comisX для SSE:
+\begin{center}
+    \begin{minipage}{0.9\textwidth}
+        \begin{minted}[mathescape=true]{gas}
+    comiss %xmm0, %xmm1  # сравнивает %xmm0 с %xmm1
+    ja .greater
+    # ...
+        \end{minted}
+    \end{minipage}
+\end{center}
+
+И fcomi для x87:
+
+\begin{center}
+    \begin{minipage}{0.9\textwidth}
+        \begin{minted}[mathescape=true]{gas}
+    fcomi
+    ja .greater  # сравнивает st(0) с st(1)
+    # ...
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}
+\center\Huge{Дякую!}
+\end{frame}
+
+
+\end{document}

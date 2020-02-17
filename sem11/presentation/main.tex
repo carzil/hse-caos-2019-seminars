@@ -1,0 +1,223 @@
+\documentclass[10pt,pdf,hyperref={unicode}]{beamer}
+
+\usepackage[normalem]{ulem}
+\usepackage{qrcode}
+\usepackage{array}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{colortbl}
+\usepackage{minted}
+\usepackage{listings}
+\usepackage{tcolorbox}
+
+\setbeamertemplate{navigation symbols}{}
+
+\usetheme{default}
+
+\usepackage{array}
+\newcolumntype{L}[1]{>{\raggedright\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{C}[1]{>{\centering\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+
+\definecolor{shadecolor}{RGB}{210,210,210}
+\newcommand{\asm}[1]{\colorbox{shadecolor}{#1}}
+
+\newcommand{\qrlinkframe}[2]{\begin{frame}{#1}
+\center\qrcode[hyperlink,height=75px]{#2}
+\end{frame}}
+
+\title{Семинар 11: Intel x86 assembly. Часть 4}
+\date{11 февраля, 2020}
+
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\qrlinkframe{Материалы семинаров на GitHub}{https://github.com/carzil/hse-caos-2019-seminars}
+
+\begin{frame}{Системные вызовы}
+\begin{itemize}
+    \item Способ общения с операционной системой
+    \item В C выглядят как обычные функции
+    \item Реализуются libc
+    \item В ассемблере всё хитрее
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Системные вызовы: механизм работы}
+\begin{itemize}
+    \item Все программы работают в непривилегированном режиме (ring3)
+    \item В этом режиме нельзя напрямую работать с физической памятью, устройствами и портами ввода-вывода
+    \item Как перейти в привилегированный режим (ring0)?
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Прерывания процессора}
+\begin{itemize}
+    \item Прерывания — специальные события, которые «прерывают» исполнение команд
+    \item Прерывание может произойти после любой инструкции, но не во время её выполнения
+    \item Interrupt vector table — массив указателей на функции-обработчики прерываний (x86)
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Прерывания процессора}
+\begin{itemize}
+    \item Hardware interrupts — железные события
+    \item Software interrupts — события, сгенерированные программами
+    \item Exceptions — исключительные ситуации процессора
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Примеры прерываний}
+\begin{itemize}
+    \item События сетевой карты, клавиатуры, видеокарты, ...
+    \item \asm{int} и \asm{syscall}
+    \item Divide-by-Zero
+    \item Page fault (double fault, triple fault)
+    \item General Protection Fault
+    \item Invalid Opcode
+    \item x87 Floating-Point Exception
+    \item SIMD Floating-Point Exception
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Системные вызовы: x86}
+\begin{itemize}
+    \item Порядковый номер вызова записывается в \textbf{eax}
+    \item Аргументы передаются в \textbf{регистрах}: \textbf{ebx}, \textbf{ecx}, \textbf{edx}, \textbf{esi}, \textbf{edi}
+    \item Затем делается \asm{int 0x80}
+\end{itemize}
+\end{frame}
+
+\qrlinkframe{Таблица системных вызовов Linux x86}{https://syscalls.kernelgrok.com/}
+
+\begin{frame}{Системные вызовы: x86-64}
+\begin{itemize}
+    \item Порядковый номер вызова записывается в \textbf{rax}
+    \item Аргументы передаются в \textbf{регистрах}: \textbf{rdi}, \textbf{rsi}, \textbf{rdx}, \textbf{r10}, \textbf{r8}, \textbf{r9}
+    \item Затем делается \asm{syscall}
+\end{itemize}
+\end{frame}
+
+\qrlinkframe{Таблица системных вызовов Linux x86-64}{https://filippo.io/linux-syscall-table/}
+
+\begin{frame}{Red zone}
+\begin{itemize}
+    \item Область размером 128 байт \textbf{под} текущим \textbf{rsp}
+    \item System V AMD64 ABI гарантирует, что это место не используется обработчиком прерывания
+    \item Используется для оптимизации, например, последняя функция может не выделять полноценный фрейм, а использовать red zone
+\end{itemize}
+\end{frame}
+
+\qrlinkframe{Что будет, если забыть про red zone?}{https://alex.dzyoba.com/blog/redzone/}
+
+\begin{frame}{Файлы}
+\begin{itemize}
+    \item Каждый файл имеет путь относительно /
+    \item Передавать каждый раз путь в системный вызов -- затратно
+    \item Поэтому (и не только) изобрели \emph{файловые дескрипторы}
+    \item Файловый дескриптор -- какое-то число, которое идентифицирует файл
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\center\huge{Правило \#1: всегда закрывать файловые дескрипторы, после завершения работы с ними!}
+\end{frame}
+
+\begin{frame}{Файловые дескрипторы}
+\begin{itemize}
+    \item 0 -- stdin, 1 -- stdout, 2 -- stderr
+    \item Выдаются последовательно
+    \item Под файловым дескриптором может быть что угодно: регулярные файлы, именованные каналы, сокеты, linux-specific интерфейсы (epoll, signalfd, eventfd), ...
+    \item Ограниченное количество, лимит задаётся на каждый процесс, увеличить можно с помощью ulimit
+    \item Утекание файловых дескрипторов намного страшнее утечек памяти
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Интерфейс Linux для файлов}
+\begin{center}
+    \begin{minipage}{0.95\textwidth}
+        \begin{minted}{c}
+#include <unistd.h>
+#include <fcntl.h>
+int open(const char *pathname, int oflag, mode_t mode);
+ssize_t read(int fd, void *buf, size_t nbytes);
+ssize_t write(int fd, const void *buf, size_t nbytes);
+int close(int fd);
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{open}
+\begin{itemize}
+    \item «Открывает» файл с заданным режимом (на чтение/запись) и возвращает файловый дескриптор
+    \item \textbf{O\_RDONLY} -- только чтение
+    \item \textbf{O\_WRONLY} -- только запись
+    \item \textbf{O\_RDWR} -- и чтение, и запись
+    \item \textbf{O\_CREAT} -- создать файл, если он не существует (mode в этом случае -- права на файл)
+    \item \textbf{O\_EXCL} -- используется вместе \textbf{O\_CREAT} и тогда гарантирует атомарность создания файла
+\end{itemize}
+\end{frame}
+
+\begin{frame}{read}
+\begin{itemize}
+    \item Копирует \textbf{ИЗ} файлового дескриптора \textbf{fd} \emph{не более} \textbf{nbytes} в буфер \textbf{buf}
+    \item Возвращает 0, если больше нечего <<читать>>
+    \item Если произошла ошибка возвращает -1 и выставляет \textbf{errno}
+    \item В противном случае заблокируется, пока данные не будут доступны на чтение
+    \item Возвратит количество прочитанных байт
+\end{itemize}
+\end{frame}
+
+\begin{frame}{write}
+\begin{itemize}
+    \item Копирует \textbf{в} файловый дескриптор \textbf{fd} \emph{не более} \textbf{nbytes} из буфера \textbf{buf}
+    \item Возвращает -1, если произошла ошибка
+    \item Возвращает количество записанных байт (всегда >0)
+    \item Может заблокироваться, если файл под файловым дескриптором пока нельзя что-либо записать
+\end{itemize}
+\end{frame}
+
+\begin{frame}{close}
+\begin{itemize}
+    \item Закрывает (освобождает) файловый дескриптор
+    \item Возвращает -1, если произошла ошибка -- это бывает очень редко
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Inline assembly}
+\begin{itemize}
+    \item Позволяют встраивать код на ассемблере внутрь С/C++
+    \item Используют подстановки в специальном синтаксисе­
+    \item Обычно используются только в крайнем случае, когда нужно вставить особую процессорную инструкцию в тело функции (например, инструкцию, которая запрещает прерывания)
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Как это \sout{отвратительно} выглядит}
+\begin{center}
+    \begin{minipage}{0.9\textwidth}
+        \begin{minted}{c}
+asm ("mov %3, %0\n"
+     "mov %2, %1\n"
+     : "=r" (a), "=m"(b)     // выходные параметры
+     : "r" (c), "m"(d)       // входные параметры
+     : "rax", "rbx", "rdx")  // clobbers
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\qrlinkframe{Мануал по inline assembly}{https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html}
+
+\begin{frame}
+\center\Huge{Дзякуй!}
+\end{frame}
+
+
+\end{document}

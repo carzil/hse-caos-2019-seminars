@@ -10,3 +10,5 @@ admin/
 *.toc
 _minted-main/
 *.vrb
+*.so
+*.o

@@ -1,0 +1,241 @@
+\documentclass[10pt,pdf,hyperref={unicode}]{beamer}
+
+\usepackage[normalem]{ulem}
+\usepackage{qrcode}
+\usepackage{array}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{colortbl}
+\usepackage{minted}
+\usepackage{listings}
+\usepackage{tcolorbox}
+
+\setbeamertemplate{navigation symbols}{}
+
+\usetheme{default}
+
+\usepackage{array}
+\newcolumntype{L}[1]{>{\raggedright\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{C}[1]{>{\centering\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+
+\definecolor{shadecolor}{RGB}{210,210,210}
+\newcommand{\asm}[1]{\colorbox{shadecolor}{#1}}
+
+\newcommand{\qrlinkframe}[2]{\begin{frame}{#1}
+\center\qrcode[hyperlink,height=75px]{#2}
+\end{frame}}
+
+\title{Семинар 13: немного о линкерах}
+\date{10 марта, 2020}
+
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Основные понятия}
+\begin{itemize}
+    \item \textbf{Symbol} — именованная сущность (обычно функция или глобальная переменная), за которой должен быть закреплён адрес
+    \item \textbf{Content} — описание того, как ОС должна загрузить символ в память
+    \item \textbf{Relocation} — указание вычисления адреса по определённому правилу
+    \item \textbf{Object file} — файл-контейнер для символов и их содержимого
+    \item Релокации обычно состоят из \textbf{offset} и \textbf{addend}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Что происходит во время статической линковки?}
+\begin{enumerate}
+    \item Чтение и парсинг объектных файлов
+    \item Построение таблицы символов
+    \item Размещение всех известных секций в памяти
+    \item Применение релокаций
+\end{enumerate}
+\end{frame}
+
+\qrlinkframe{Спецификация ELF}{http://www.sco.com/developers/devspecs/gabi41.pdf}
+\qrlinkframe{Спецификация ELF для x86-64}{http://refspecs.linuxbase.org/elf/x86_64-abi-0.99.pdf}
+
+\begin{frame}[fragile]
+\frametitle{Описание релокации в ELF}
+\begin{center}
+    \begin{minipage}{0.95\textwidth}
+        \begin{minted}{c}
+typedef struct {
+    Elf32_Addr r_offset;
+    Elf32_Addr r_info;
+    Elf32_Addr r_addend;
+} Elf32_Rela;
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Релокации в x86-64}
+\begin{itemize}
+    \item На данный момент для x86-64 существует \textbf{38} возможных релокаций
+    \item Самые распространённые: \textbf{R\_X86\_64\_PC32}, \textbf{R\_X86\_64\_GOT32}, \textbf{R\_X86\_64\_PLT32}
+    \item Полный список можно найти в ABI для x86-64
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Динамическая линковка}
+\begin{itemize}
+    \item Исторически идея была придумана для экономии памяти
+    \item Давайте вынесем часто используемые функции в разделяемые библиотеки или \textbf{shared objects}
+    \item Эти объекты будем подклеивать в различные виртуальные адресные пространства, но физически их будем хранить в единственном экземпляре
+    \item Как устроить процесс линковки для таких библиотек?
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Динамическая линковка}
+\begin{itemize}
+    \item Position independent code
+    \item Global offset table
+    \item Procedure linkage table
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Position independent code}
+\begin{itemize}
+    \item Код, начало которого может располагаться как угодно в памяти
+    \item Значит, что нельзя использовать абсолютные адреса, только относительные
+    \item RIP-relative addressing
+    \item Кроме разделяемых объектов используется для \emph{address space layout randomization} (ASLR)
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Global offset table}
+\begin{itemize}
+    \item Специальная секция (\mintinline{c}{.got} и \mintinline{c}{.got.plt}) в ELF
+    \item Хранит в себе отображение из названий символов в адреса
+    \item При динамической линковке эти адреса заполняются специальным \emph{интерпретатором} (\mintinline{c}{ld-linux.so})
+    \item Релокации применяются на стадии линковки, но ссылаются на секцию, которая будет заполнена во время исполнения
+    \item Однако, это всё равно называются релокациями, но они уже находятся в других секциях (\mintinline{c}{.rel.dyn}, \mintinline{c}{.rel.plt})
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Procedure linkage table}
+\begin{itemize}
+    \item Секция, которая содержит специальным образом сформированные заглушки для вызова процедур
+    \item Все вызовы сторонних функций в реальности делают \mintinline{gas}{call} на символы, объявленные в этой секции
+    \item Первый вызов будет триггерить динамический линковщик, остальные вызовы будут напрямую вызывать функцию (\emph{lazy binding})
+    \item Можно отключить с помощью опции линкера: \mintinline{c}{-z now}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Устройство заглушки в PLT-секции: до резолва}
+\begin{center}
+    \begin{minipage}{0.95\textwidth}
+        \begin{minted}[mathescape=true]{gas}
+FUNC@plt:
+    jmpq   *FUNC_GOT_OFFSET(%rip)  # Прыжок по адресу в GOT
+    pushq  index  # Индекс символа в .rel.dyn
+    jmpq   FIRST_PLT_ENTRY  # relative jump
+
+FUNC@got.plt: # адрес pushq
+
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Процесс резолва}
+\begin{enumerate}
+    \item Вызов \mintinline{text}{FUNC@plt}
+    \item Прыжок по адресу в GOT
+    \item Возврат обратно в PLT
+    \item Подготовка аргументов для линкера
+    \item Переход в FIRST\_PLT\_ENTRY
+    \item Вызов линкера
+    \item Поиск .so-файла и его подгрузка через mmap + mprotect
+    \item Запись адреса FUNC в FUNC@got.plt
+    \item Вызов FUNC
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Устройство заглушки в PLT-секции: после резолва}
+\begin{center}
+    \begin{minipage}{0.95\textwidth}
+        \begin{minted}[mathescape=true]{gas}
+FUNC@plt:
+    jmpq   *FUNC_GOT_OFFSET(%rip)  # Прыжок по адресу в GOT
+    # инструкции ниже никогда больше не выполнятся
+    pushq  index
+    jmpq   FIRST_PLT_ENTRY
+
+FUNC@got.plt: # абсолютный адрес FUNC
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Оставшиеся вопросы}
+\begin{itemize}
+    \item Как линкер узнает, какие shared objects нужно подгрузить? \onslide<2->{Из секции dynamic, которую он парсит на старте}
+    \item Как получить текущий EIP под x86?
+    \item Зачем разделять GOT и PLT?
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\center\Huge{Как получить текущий EIP под x86?}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{\_\_x86.get\_pc\_thunk.bx}
+\begin{center}
+    \begin{minipage}{0.95\textwidth}
+        \begin{minted}[mathescape=true]{gas}
+__x86.get_pc_thunk.bx:
+    mov (%esp), %ebx
+    ret
+
+    ...
+
+    call __x86.get_pc_thunk.bx
+    # теперь ebx содержит текущий EIP
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Зачем разделять GOT и PLT?}
+\begin{itemize}
+    \item Indirect call — 6 байт, direct call — 5 байт
+    \item Поэтому компилятор должен был бы различать для чего он компилирует код: для динамической линковки или статической
+    \item На x86-64 Можно использовать RIP-relative addressing и \mintinline{c}{-fno-plt}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Статическая vs динамическая линковка}
+\begin{itemize}
+    \item Динамическая линковка вызывает \emph{dependency hell}
+    \item Простота эксплуатации > экономия памяти
+    \item Молодые языки (например, Rust и Go), поэтому используют статическую линковку
+    \item Но из-за этого растёт размер исполняемых файлов и время компиляции
+\end{itemize}
+\end{frame}
+
+\qrlinkframe{Ian Lance Taylor about linkers}{https://www.airs.com/blog/archives/38}
+
+\begin{frame}{vDSO}
+\begin{itemize}
+    \item Virtual dynamic shared object
+    \item Полноценный ELF-объект внутри каждого процесса
+    \item Ускоряет вызов сисколлов, которые не требуют доступа к <<тяжёлым>> данным ядра
+    \item На данный момент содержит в себе: \mintinline{c}{gettimeofday}, \mintinline{c}{clock_gettime}, \mintinline{c}{getcpu}.
+    \item Идея состоит в том, чтобы реализацию сисколла унести в userspace, а необходимые данные периодически подкладывать в адресное пространство процесса
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\center\Huge{Gratias ago!}
+\end{frame}
+
+
+\end{document}

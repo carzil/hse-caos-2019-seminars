@@ -1,0 +1,290 @@
+\documentclass[10pt,pdf,hyperref={unicode}]{beamer}
+
+\usepackage[normalem]{ulem}
+\usepackage{qrcode}
+\usepackage{array}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{colortbl}
+\usepackage{minted}
+\usepackage{listings}
+\usepackage{tcolorbox}
+
+\setbeamertemplate{navigation symbols}{}
+
+\usetheme{default}
+
+\usepackage{array}
+\newcolumntype{L}[1]{>{\raggedright\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{C}[1]{>{\centering\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+
+\definecolor{shadecolor}{RGB}{210,210,210}
+\newcommand{\asm}[1]{\colorbox{shadecolor}{#1}}
+
+\newcommand{\qrlinkframe}[2]{\begin{frame}{#1}
+\center\qrcode[hyperlink,height=75px]{#2}
+\end{frame}}
+
+\title{Семинар 12: файлы в Linux}
+\date{25 февраля, 2020}
+
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Интерфейс Linux для файлов [x2]}
+\begin{center}
+    \begin{minipage}{0.95\textwidth}
+        \begin{minted}{c}
+#include <sys/types.h>
+#include <unistd.h>
+#include <fcntl.h>
+
+off_t lseek(int fd, off_t offset, int whence);
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{lseek}
+\begin{itemize}
+    \item С каждым файловым дескриптором внутри ядра ассоциируется \mintinline{c}{struct file}
+    \item У этой структуры есть поле, отвечающее за текущее положение в файле (\mintinline{c}{f_pos})
+    \item За несколькими файловыми дескрипторами может быть одна \mintinline{c}{struct file}!
+    \item lseek позволяет изменять позицию в файле
+\end{itemize}
+\end{frame}
+
+\begin{frame}{lseek: whence}
+\begin{itemize}
+    \item \textbf{SEEK\_SET}: \mintinline{c}{f_pos = offset}
+    \item \textbf{SEEK\_CUR}: \mintinline{c}{f_pos += offset}
+    \item \textbf{SEEK\_END}: \mintinline{c}{f_pos = file_size + offset}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{lseek: off\_t}
+\begin{itemize}
+    \item Специальный тип, который предназначен для хранения оффсетов
+    \item Может быть 32ух битным
+    \item Чтобы было 64 бита: \mintinline{bash}{-D_FILE_OFFSET_BITS=64}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Имена файлов}
+\begin{itemize}
+    \item Относительный путь отсчитывается от текущей директории
+    \item Абсолютный путь — от корня
+    \item В реальности длина ничем не ограничена
+    \item Путь, передаваемый в сисколлы не может превосходить \mintinline{c}{PATH_MAX}
+\end{itemize}
+\end{frame}
+
+\qrlinkframe{PATH\_MAX Is Tricky}{https://eklitzke.org/path-max-is-tricky}
+
+\begin{frame}[fragile]
+\frametitle{Мета-информация файлов}
+\begin{center}
+    \begin{minipage}{1\textwidth}
+        \begin{minted}{c}
+#include <sys/stat.h>
+#include <unistd.h>
+
+int stat(const char* pathname, struct stat* buf);
+int lstat(const char* pathname, struct stat* buf);
+int fstat(int fd, struct stat *buf);
+ssize_t readlink(const char *pathname, char *buf, size_t bufsiz);
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{struct stat}
+    \begin{minipage}{1\textwidth}
+        \begin{minted}{c}
+#include <sys/stat.h>
+
+struct stat {
+   dev_t     st_dev;      /* ID of device containing file */
+   ino_t     st_ino;      /* Inode number */
+   mode_t    st_mode;     /* File type and mode */
+   nlink_t   st_nlink;    /* Number of hard links */
+   uid_t     st_uid;      /* User ID of owner */
+   gid_t     st_gid;      /* Group ID of owner */
+   dev_t     st_rdev;     /* Device ID (if special file) */
+   off_t     st_size;     /* Total size, in bytes */
+   blksize_t st_blksize;  /* Block size for filesystem I/O */
+   blkcnt_t  st_blocks;   /* Number of allocated blocks */
+   time_t st_atime;       /* Time of last access */
+   time_t st_mtime;       /* Time of last modification */
+   time_t st_ctime;       /* Time of last status change */
+};
+        \end{minted}
+    \end{minipage}
+\end{frame}
+
+\begin{frame}{Типы файлов}
+\begin{itemize}
+    \item 7 типов файлов
+    \item Регулярные (\textbf{S\_ISREG})
+    \item Директории (\textbf{S\_ISDIR})
+    \item Символьные устройства (\textbf{S\_ISCHR})
+    \item Блочные устройства (\textbf{S\_ISBLK})
+    \item Именованные пайпы (\textbf{S\_ISFIFO})
+    \item Символические ссылки (\textbf{S\_ISLNK})
+    \item Сокеты (\textbf{S\_ISSOCK})
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Права доступа}
+\begin{itemize}
+    \item 3 группы по 3 бита определяют права на чтение (r), запись (w) и исполнение (x)
+    \item Чаще всего записываются в виде \mintinline{c}{rwxrwxrwx} или восьмеричных чисел
+    \item Примеры:
+    \item \mintinline{c}{777 = rwxrwxrwx} — права доступа кому угодно
+    \item \mintinline{c}{666 = rw-rw-rw-} — права доступа на чтение запись кому угодно
+    \item \mintinline{c}{700 = rw-------} — читать/писать может только владелец
+    \item Сначала проверяются права на владельца, потом на группу и потом для остальных
+    \item Если у владельца \mintinline{c}{---}, но у группы \mintinline{c}{rwx}, то у владельца доступа всё равно не будет, даже если он будет входить в группу-владельца
+\end{itemize}
+\end{frame}
+
+\begin{frame}{inode и файловые ссылки}
+\begin{itemize}
+    \item inode — структура, которая содержит в себе мета-информацию (аттрибуты) и аллоцированные блоки
+    \item Также под inode часто понимают её уникальный номер
+    \onslide<2->\item Символические ссылки — файлы, которые содержат в себе пути до других файлов
+    \onslide<2->\item Жёсткие ссылки — различные «имена» одного и того же файла
+    \onslide<2->\item Жёсткие ссылки на один и тот же файл имеют одинаковые inode в отличие от символических
+    \onslide<2->\item Жёсткие ссылки должны быть на одной файловой системе
+    \onslide<2->\item Символические ссылки могут ссылаться на несуществующий файл
+    \onslide<2->\item \mintinline{c}{lstat} не следует по символическим ссылкам в отличие от \mintinline{c}{stat}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Проверка прав доступа}
+\begin{center}
+    \begin{minipage}{0.95\textwidth}
+        \begin{minted}{c}
+#include <unistd.h>
+
+#define F_OK ...
+#define R_OK ...
+#define W_OK ...
+#define X_OK ...
+
+int access(const char *pathname, int mode);
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+
+\begin{frame}[fragile]
+\frametitle{File allocations}
+\begin{center}
+    \begin{minipage}{0.95\textwidth}
+        \begin{minted}{c}
+#include <sys/types.h>
+#include <unistd.h>
+#include <fcntl.h>
+
+int truncate(const char* path, off_t length);
+int ftruncate(int fd, off_t length);
+int fallocate(int fd, int mode, off_t offset, off_t len);
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{ftruncate}
+\begin{itemize}
+    \item Позволяет изменять \emph{размер} файла, не используя \mintinline{c}{write}
+    \item Если \mintinline{c}{file_size < length}, то добивает файл \mintinline{c}{'\0'}
+    \item Если \mintinline{c}{file_size > length}, то данные теряются
+    \item Не меняет \mintinline{c}{f_pos}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{fallocate}
+\begin{itemize}
+    \item Аллоцирует \emph{дисковое пространство}
+    \item После этого вызова гарантируется, что для $[offset; offset + len)$ будет выделено реальное место на диске
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Создание и удаление файлов}
+\begin{center}
+    \begin{minipage}{0.95\textwidth}
+        \begin{minted}{c}
+#include <sys/stat.h>
+
+int link(const char *oldpath, const char *newpath);
+int symlink(const char *oldpath, const char *newpath);
+int mkdir(const char *pathname, mode_t mode);
+
+int rmdir(const char *pathname);
+int unlink(const char *oldpath, const char *newpath);
+int rename(const char* oldpath, const char* newpath);
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Работа с директориями}
+\begin{center}
+    \begin{minipage}{0.95\textwidth}
+        \begin{minted}{c}
+#include <sys/stat.h>
+
+DIR *opendir(const char *pathname);
+
+struct dirent {
+    ino_t d_ino;
+    char d_name[NAME_MAX + 1];
+}
+struct dirent *readdir(DIR *dp);
+
+void rewinddir(DIR *dp);
+int closedir(DIR *dp);
+long telldir(DIR *dp);
+void seekdir(DIR *dp, long loc);
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Работа с рабочей директорией}
+\begin{center}
+    \begin{minipage}{0.95\textwidth}
+        \begin{minted}{c}
+#include <unistd.h>
+
+char *getcwd(char *buf, size_t size);
+int chdir(const char *pathname);
+int fchdir(int filedes);
+        \end{minted}
+    \end{minipage}
+\end{center}
+\end{frame}
+
+
+\qrlinkframe{Работа со временем}{https://github.com/hseos/hseos-course/tree/master/2018/13-files2\#\%D1\%80\%D0\%B0\%D0\%B1\%D0\%BE\%D1\%82\%D0\%B0-\%D1\%81\%D0\%BE-\%D0\%B2\%D1\%80\%D0\%B5\%D0\%BC\%D0\%B5\%D0\%BD\%D0\%B5\%D0\%BC}
+
+
+\begin{frame}
+\center\Huge{Gratias ago!}
+\end{frame}
+
+
+\end{document}

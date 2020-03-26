@@ -1,0 +1,306 @@
+\documentclass[10pt,pdf,hyperref={unicode}]{beamer}
+
+\usepackage[normalem]{ulem}
+\usepackage{qrcode}
+\usepackage{array}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{colortbl}
+\usepackage{minted}
+\usepackage{listings}
+\usepackage{tcolorbox}
+
+\setbeamertemplate{navigation symbols}{}
+
+\usetheme{default}
+
+\usepackage{array}
+\newcolumntype{L}[1]{>{\raggedright\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{C}[1]{>{\centering\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+
+\definecolor{shadecolor}{RGB}{210,210,210}
+\newcommand{\asm}[1]{\colorbox{shadecolor}{#1}}
+
+\newcommand{\qrlinkframe}[2]{\begin{frame}{#1}
+\center\qrcode[hyperlink,height=75px]{#2}
+\end{frame}}
+
+\title{Семинар 15: процессы}
+\date{26 марта, 2020}
+
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Процессы}
+\begin{itemize}
+    \item Сам термин «процесс» довольно сложно определить
+    \item POSIX: <<\emph{A process is an abstraction that represents an executing program. Multiple processes execute independently and have separate address spaces. Processes can create, interrupt, and terminate other processes, subject to security restrictions.}>>
+    \item В самом ядре Linux нет понятия «процесс», вместо этого оно оперирует «тасками»
+    \item То, что в POSIX процесс, в Linux называется thread group
+    \item Дальше мы всё таки будем говорить процессы :)
+    \item Процессы объединяются в \emph{группы процессов}
+    \item Группы процессов объединяются в \emph{сессии}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Аттрибуты процесса}
+\begin{itemize}
+    \item Сохранённых контекст процесса (регистры)
+    \item Отображения памяти (VMA) и стек для ядра
+    \item Файловые дескрипторы
+    \item Current working directory (cwd) и текущий корень (\mintinline{c}{man 2 chroot})
+    \item umask
+    \item PID, PPID, TID, TGID, PGID, SID
+    \item Resource limits
+    \item Priority
+    \item Capabilities
+    \item Namespaces
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Аттрибуты процесса: PID, PPID, TGID, ...}
+\begin{itemize}
+    \item PID = process ID
+    \item PPID = parent process ID
+    \item TID = thread ID
+    \item TGID = thread group ID
+    \item PGID = process group ID
+    \item SID = session ID
+    \item \mintinline{c}{pid_t getpid()}, \mintinline{c}{pid_t getppid()}, \mintinline{c}{pid_t gettid()}
+    \item \mintinline{c}{pid_t getpgid()}, \mintinline{c}{int setpgid(pid_t pid, pid_t pgid)}
+    \item \mintinline{c}{pid_t setsid()}, \mintinline{c}{pid_t getsid(pid_t pid)}
+    \item Всё это можно найти в \mintinline{c}{/proc/<pid>/status} или в \mintinline{c}{/proc/<pid>/stat}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Аттрибуты владельца процесса}
+\begin{itemize}
+    \item UID (user ID или real user ID) — ID владельца процесса, \mintinline{c}{void setuid(uid_t)}
+    \item EUID (effective user ID) используется для проверок доступа, \mintinline{c}{void seteuid(uid_t)}
+    \item SUID (saved user ID) используется, чтобы можно было временно понизить привилегии
+    \item FSUID (file system user ID) обычно совпадает с EUID, но может быть отдельно изменён через \mintinline{c}{int setfsuid(uid_t fsuid)}
+    \item Непривилегированный процесс может выставлять EUID равный только в SUID, UID или опять в EUID
+    \item Также есть понятие setuid/setgid флагов (правильно они называются sticky-флагами), в отличие от обычных файлов, владельцем такого процесса станет \emph{владелец файла}, а не текущий пользователь
+    \item Есть аналогичные GID, EGID, SGID, FSGID
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Приоритет и nice процессов}
+\begin{itemize}
+    \item В Linux есть понятие приоритета процесса
+    \item Всего существует 140 различных приоритетов двух типов: real-time priroity и nice
+    \item Приоритет реального времени от 1 до 99
+    \item Приоритет для пользователей (через nice): от 100 до 139
+    \item $priority = 20 + niceValue$
+    \item Чем выше nice value, тем менее он приоритетен (более вежливый) и тем реже он выполняется
+    \item По-умолчанию nice value равен 0
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Лимиты ресурсов процессов}
+\begin{itemize}
+    \item Лимиты деляется на два типа: soft и hard
+    \item Soft-лимит или текущий лимит -- по нему вычисляются проверки
+    \item Hard-лимит — максимальное значение soft-лимита
+    \item CPU-время, если процесс его превысит ему ядро отошлёт \textbf{SIGXCPU}, если превысит hard limit, то \textbf{SIGKILL}
+    \item Размер записываемых файлов: write будет возвращать \textbf{EFBIG}
+    \item Размер записываемых coredump-файлов
+    \item На максимальный размер виртуальной памяти, выделенной процессу
+    \item Количество одновременных процессов пользователя
+    \item Количество файловых дескрипторов
+    \item И ещё кучу всего :)
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Лимиты ресурсов процессов}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{c}
+#include <sys/time.h>
+#include <sys/resource.h>
+
+int getrlimit(int resource, struct rlimit *rlim);
+int setrlimit(int resource, const struct rlimit *rlim);
+
+int prlimit(pid_t pid, int resource,
+     const struct rlimit *new_limit,
+           struct rlimit *old_limit);
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Механизмы изоляции}
+\begin{itemize}
+    \item \mintinline{c}{man 7 namespaces} и \mintinline{c}{man 7 cgroups}
+    \item Linux namespaces изолируют части отдельные процессов
+    \item Существующие неймспейсы: user, network, mount, cgroup, pid и ut
+    \item Механизм Linux для ограничения ресурсов процессов: в основном это более тонкие ограничения для потребления процессорного времени и памяти
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Работа с процессами: fork}
+\begin{itemize}
+    \item В Linux выбран не самый обычный подход для запуска новых процессов
+    \item Создать новый процесс можно только \emph{скопировав} текущий с помощью \mintinline{c}{pid_t fork()}
+    \item fork выйдет в двух процессах одновременно, но в однём вернёт PID ребёнка, а в другом — 0.
+    \item Ребёнок будет полностью идентичен родителю, но файловые дескрипторы и адресное пространство будут \emph{скопированы}
+    \item Копирование адресного пространства довольно затратная штука, поэтому используется copy-on-write
+    \item Реально копироваться страница будет только при первой записи в родителе или ребёнке
+\end{itemize}
+\end{frame}
+
+\qrlinkframe{Dirty COW (CVE-2016-5195)}{https://chao-tic.github.io/blog/2017/05/24/dirty-cow}
+
+\begin{frame}[fragile]
+\frametitle{Работа с процессами: fork}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{c}
+#include <unistd.h>
+
+pid_t pid = fork();
+if (pid == -1) {
+    // fork сломался
+} else if (pid == 0) {
+    // ребёнок
+    // текущий pid можно получить через getpid
+} else {
+    // родитель, pid содержит pid ребёнка
+}
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Работа с процессами: execve}
+\begin{itemize}
+    \item Создавать копии недостаточно, нужно уметь запускать произвольные файлы
+    \item Для этого используется системный вызовов execve
+    \item Он заменяет текущий процесс, процессом, созданным из указанного файла
+    \item Это называется заменой образа процесса: заменяются только части адресного пространства
+    \item Аттрибуты процесса сохраняются (в том числе: лимиты, неймспейсы, всевозможные *ID, ...), хотя бывают исключения
+    \item Также в новом образе процесса останутся текущие файловые дескрипторы, не помеченные флагом \mintinline{c}{O_CLOEXEC}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Работа с процессами: execve}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{c}
+#include <unistd.h>
+
+extern char **environ;
+int execl(const char *path, const char *arg0,
+        ... /*, (char *)0 */);
+int execle(const char *path, const char *arg0,
+        ... /*, (char *)0, char *const envp[]*/);
+int execlp(const char *file, const char *arg0,
+        ... /*, (char *)0 */);
+int execv(const char *path, char *const argv[]);
+int execve(const char *path, char *const argv[],
+        char *const envp[]);
+int execvp(const char *file, char *const argv[]);
+int fexecve(int fd, char *const argv[], char *const envp[]);
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Работа с процессами: exit}
+\begin{itemize}
+    \item Служит для завершения текущего процесса
+    \item \mintinline{c}{exit} vs \mintinline{c}{_exit}
+    \item Чтобы завершить текущую thread group можно воспользоваться \mintinline{c}{exit_group}
+    \item После вызова происходит закрытие всех открытых файловых дескрипторов, освобождение страниц в физической памяти
+    \item Если у процесса были дети, то их родителем станет процесс с PID == 1.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Работа с процессами: wait}
+\begin{itemize}
+    \item Кроме запуска процессов нужно ещё и дожидаться их завершения
+    \item Для этого используются системные вызовы семейства wait*
+    \item Они дожидаются завершения процесса (конкретного или любого) и возвращают специальный \emph{exit status}
+    \item Обычно exit status содержит то, что передали в \mintinline{c}{exit}, но иногда процесс может завершиться не сам, а с помощью сигнала
+    \item Для того, чтобы различать такие случаи, используются специальные макросы
+    \item Зомби-процесс (Z) — такой процесс, который завершился, но wait в родителе ещё не собрал информацию из него
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}[fragile]
+\frametitle{Работа с процессами: wait}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{c}
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+
+pid_t wait(int *wstatus);
+pid_t waitpid(pid_t pid, int *wstatus, int options);
+
+pid_t wait3(int *wstatus, int options,
+           struct rusage *rusage);
+
+pid_t wait4(pid_t pid, int *wstatus, int options,
+           struct rusage *rusage);
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Работа с процессами: макросы для status}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{c}
+WIFEXITED(status) // если процесс завершился сам
+WEXITSTATUS(status) // exit status
+WIFSIGNALED(status) // если процесс был завершён сигналом
+WTERMSIG(status) // сигнал, завершивший процесс
+WCOREDUMP(status) // отложил ли процесс coredump?
+
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+
+% \begin{frame}[fragile]
+% \frametitle{Работа с процессами: ptrace}
+% \begin{center}
+% \begin{minipage}{0.95\textwidth}
+% \begin{minted}{c}
+
+
+% // используется для ptrace
+% WIFSTOPPED(status)
+% WSTOPSIG(status)
+% WIFCONTINUED(status)
+% \end{minted}
+% \end{minipage}
+% \end{center}
+% \end{frame}
+
+
+% \begin{frame}
+% \begin{itemize}
+% \end{itemize}
+% \end{frame}
+
+\begin{frame}
+\center\Huge{Gratias ago!}
+\end{frame}
+
+
+\end{document}

@@ -1,0 +1,148 @@
+\documentclass[10pt,pdf,hyperref={unicode}]{beamer}
+
+\usepackage[normalem]{ulem}
+\usepackage{qrcode}
+\usepackage{array}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{colortbl}
+\usepackage{minted}
+\usepackage{listings}
+\usepackage{tcolorbox}
+
+\setbeamertemplate{navigation symbols}{}
+
+\usetheme{default}
+
+\usepackage{array}
+\newcolumntype{L}[1]{>{\raggedright\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{C}[1]{>{\centering\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+
+\definecolor{shadecolor}{RGB}{210,210,210}
+\newcommand{\asm}[1]{\mintinline{gas}{#1}}
+
+\newcommand{\qrlinkframe}[2]{\begin{frame}{#1}
+\center\qrcode[hyperlink,height=75px]{#2}
+\end{frame}}
+
+\title{Семинар 16: управление процессами}
+\date{9 апреля, 2020}
+
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}
+\center\HugeАкт 1: mini GDB
+\end{frame}
+
+\begin{frame}{ptrace}
+\begin{itemize}
+    \item ptrace — интерфейс ядра, предоставляющий возможность наблюдать и контролировать исполнение другого процесса
+    \item tracer — это тот, \emph{кто} контролирует выполнение
+    \item tracee — это тот, \emph{кого} контролируют
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{ptrace: attaching}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{c}
+
+pid_t pid = fork();
+if (pid == 0) {
+    ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+    execve(...);
+} else {
+    for (;;) {
+        int status = 0;
+        waitpid(pid, &status, 0);
+        if (WIFSTOPPED(status)) {
+            // процесс остановился, из-за ptrace
+        } else if (WIFSIGNALED(status)) {
+            // процесс был просигнализирован
+        } else if (WIFEXITED(status)) {
+            // процесс завершился
+        } else {
+            // никогда не выполняется
+        }
+    }
+}
+
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Как ставятся брейпоинты?}
+\begin{itemize}
+    \item В Linux поддерживается соглашение, что \asm{int 3} будет вызывать \textbf{SIGTRAP}
+    \item Команды PTRACE\_PEEKUSER и PTRACE\_POKEUSER используются, чтобы читать/писать машинные слова в child-процессе
+    \item Идея — давайте вместо оригинальной инструкции запишем \asm{int 3}, когда процесс остановится, посмотрим где остановились, восстановим инструкцию и повторим её
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}{Как повторить инструкцию?}
+\begin{itemize}
+    \item В прерываниях процессора это делается автоматически (на самом деле, зависит от типа прерывания)
+    \item Нам придётся вручную менять RIP для этого
+    \item С помощью PTRACE\_GETREGS и PTRACE\_SETREGS можно изменять регистры
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}[fragile]
+\frametitle{ptrace: struct pt\_regs}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{c}
+
+struct pt_regs {
+    unsigned long r15;
+    unsigned long r14;
+    unsigned long r13;
+    unsigned long r12;
+
+    /* ... */
+
+    unsigned long rax;
+    unsigned long orig_rax;
+
+    /* ... */
+
+    unsigned long rip;
+    unsigned long cs;
+    unsigned long eflags;
+    unsigned long rbp;
+    unsigned long rsp;
+    unsigned long ss;
+};
+
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+
+\begin{frame}
+\center\HugeАкт 2: mini docker
+\end{frame}
+
+
+% \begin{frame}
+% \begin{itemize}
+% \end{itemize}
+% \end{frame}
+
+\begin{frame}
+\center\Huge{Gratias ago!}
+\end{frame}
+
+
+\end{document}

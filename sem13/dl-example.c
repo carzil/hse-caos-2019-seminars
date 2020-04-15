@@ -9,6 +9,6 @@ int main() {
         return 1;
     }
     void* sym = dlsym(handle, "printf");
-    ((int (*)(const char*, int, int)) sym)("%d %d\n", 123, 123);
+    ((int (*)(const char*, int, int)) sym)("%d %d %p %p %p %p %p\n", 123, 123);
     dlclose(handle);
 }

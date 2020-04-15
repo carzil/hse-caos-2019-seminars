@@ -1,0 +1,5 @@
+input = Hello!
+argv = ['test.py', 'test', 'abc']
+env = environ({'TEST': 'test', 'NETEST': 'test???'})
+
+KeyboardInterrupt

@@ -1,0 +1,319 @@
+\documentclass[10pt,pdf,hyperref={unicode}]{beamer}
+
+\usepackage[normalem]{ulem}
+\usepackage{qrcode}
+\usepackage{array}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{colortbl}
+\usepackage{minted}
+\usepackage{listings}
+\usepackage{tcolorbox}
+
+\setbeamertemplate{navigation symbols}{}
+
+\usetheme{default}
+
+\usepackage{array}
+\newcolumntype{L}[1]{>{\raggedright\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{C}[1]{>{\centering\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+
+\definecolor{shadecolor}{RGB}{210,210,210}
+\newcommand{\asm}[1]{\mintinline{gas}{#1}}
+
+\newcommand{\qrlinkframe}[2]{\begin{frame}{#1}
+\center\qrcode[hyperlink,height=75px]{#2}
+\end{frame}}
+
+\title{Семинар 18: POSIX signals}
+\date{25 апреля, 2020}
+
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Сигналы}
+\begin{itemize}
+    \item Аналог процессорных прерываний, но для программ
+    \item Используются для уведомления процессов о каких-то событиях
+    \item Сигналы можно обрабатывать или игнорировать
+    \item Однако, \mintinline{c}{SIGKILL} и \mintinline{c}{SIGSTOP} нельзя обработать или проигнорировать
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Сигналы: примеры}
+\begin{itemize}
+    \item Нажатие \textasciicircum C в терминале генерирует \mintinline{c}{SIGINT}
+    \item Нажатие \textasciicircum\textbackslash \, в терминале генерирует \mintinline{c}{SIGQUIT}
+    \item Запись в пайп только с write-концом генерирует \mintinline{c}{SIGPIPE}
+    \item Вызов \mintinline{c}{abort()} приводит к \mintinline{c}{SIGABRT}
+    \item Обращение к несуществующей памяти генерирует \mintinline{c}{SIGSEGV}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Доставка сигналов}
+\begin{itemize}
+    \item Сигналы могут быть доставлены от ядра (например, \mintinline{c}{SIGKILL}, \mintinline{c}{SIGPIPE})
+    \item Либо от другого процесса (например, \mintinline{c}{SIGHUP}, \mintinline{c}{SIGINT}, \mintinline{c}{SIGUSR})
+    \item Или процесс может послать сигнал сам себе (\mintinline{c}{SIGABRT})
+    \item Сигналы могут быть доставлены \emph{в любой момент} выполнения программы
+    \item Они прерывают выполнения программы на время своего выполнения
+    \item У каждого сигнала есть действие по-умолчанию: некоторые просто игнорируются, а некоторые проводят к завершению процесса
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Signal safety}
+\begin{itemize}
+    \item Во время обработки сигнала процессы могут быть в критической секции
+    \item Поэтому в обработчиках сигналов нельзя использовать, например, \mintinline{c}{printf}
+    \item Можно использовать только async-signal-safe функции
+    \item \mintinline{c}{man 7 signal-safety}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Обработка сигналов}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{c}
+
+void signal_handler(int sig) {
+    // ...
+}
+
+int main() {
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    signal(SIGSEGV, SIG_IGN);
+    signal(SIGABRT, SIG_DFL);
+}
+
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Посылка сигналов}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{c}
+#include <signal.h>
+
+int raise(int sig);
+int kill(pid_t pid, int sig);
+
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Посылка сигналов: аргументы kill}
+\begin{itemize}
+    \item Если \mintinline{c}{pid == 0}, то сигнал будет доставлен текущей группе процессов
+    \item Если \mintinline{c}{pid > 0}, то сигнал будет доставлен процессу \mintinline{c}{pid}
+    \item Если \mintinline{c}{pid == -1}, то сигнал будет всем процессам, которым текущий процесс может его отправить
+    \item Если \mintinline{c}{pid < -1}, то сигнал будет доставлен группе процессов \mintinline{c}{-pid}
+    \item Если \mintinline{c}{sig == 0}, то сигнал не будет никому отправлен, а будет только осуществлена проверка ошибок (dry run)
+    \item Возврат из kill не гарантирует, что сигнал обработался в получателях!
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Доставка сигналов: маски сигналов}
+\begin{itemize}
+    \item Маска сигналов -- bitset всех сигналов
+    \item У процесса есть две маски сигналов: pending и blocked
+    \onslide<2->\item pending -- это те сигналы, которые должны быть доставлены, но ещё не успели
+    \onslide<2->\item Из этого следует, что если несколько раз отправить сигнал в один процесс, то он может быть обработан лишь единожды
+    \onslide<3->\item blocked -- это те сигналы, которые процесс блокирует (блокировать и игнорировать -- разные вещи)
+    \onslide<3->\item Если сигнал заблокирован, это значит, что он не будет доставлен \emph{вообще}, если проигнорирован -- то у него просто пустой обработчик
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Доставка сигналов: маски сигналов}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{c}
+
+#include <signal.h>
+
+int sigemptyset(sigset_t *set);
+int sigfillset(sigset_t *set);
+int sigaddset(sigset_t *set, int signum);
+int sigdelset(sigset_t *set, int signum);
+int sigismember(const sigset_t *set, int signum);
+
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Доставка сигналов: sigprocmask}
+\begin{itemize}
+    \item \mintinline{c}{int sigprocmask(int h, sigset_t *set, sigset_t *oset);}
+    \item SIG\_SETMASK -- установить маску заблокированных сигналов
+    \item SIG\_BLOCK -- добавить сигналы \mintinline{c}{set} в заблокированные
+    \item SIG\_UNBLOCK -- удалить сигналы \mintinline{c}{set} из заблокированных
+    \item Если \mintinline{c}{oset != NULL}, то туда будет записана предыдущая маска
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Доставка сигналов: маски сигналов}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{c}
+#include <signal.h>
+
+int sigaction(int signum, const struct sigaction *act,
+              struct sigaction *oldact);
+
+struct sigaction {
+   void     (*sa_handler)(int);
+   void     (*sa_sigaction)(int, siginfo_t *, void *);
+   sigset_t   sa_mask;
+   int        sa_flags;
+};
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Обработка сигналов: sigaction}
+\begin{itemize}
+    \item Выставляет обычный обработчик \mintinline{c}{sa_handler}
+    \item Или <<расширенный>>: \mintinline{c}{sa_sigaction}
+    \item При выполнении сигнала \mintinline{c}{signum} в заблокированные сигналы добавятся сигналы из \mintinline{c}{sa_mask}, а также сам сигнал
+    \item \mintinline{c}{sa_flags} -- флаги, меняющие поведение обработки
+    \item Чтобы использовать \mintinline{c}{sa_sigaction}, нужно выставить \mintinline{c}{SA_SIGINFO}
+    \item Если выставить \mintinline{c}{SA_RESETHAND}, то обработчик сигнала будет сброшен на дефолтный после выполнения
+    \item Если выставить \mintinline{c}{SA_NODEFER}, то если сигнал не был в \mintinline{c}{sa_mask}, обработчик может быть прерван самим собой
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Обработка сигналов: siginfo\_t}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{c}
+#include <signal.h>
+
+siginfo_t {
+   int      si_signo;     int      si_overrun;
+   int      si_errno;     int      si_timerid;
+   int      si_code;      void    *si_addr;
+   int      si_trapno;    long     si_band;
+   pid_t    si_pid;       int      si_fd;
+   uid_t    si_uid;       short    si_addr_lsb;
+   int      si_status;    void    *si_lower;
+   clock_t  si_utime;     void    *si_upper;
+   clock_t  si_stime;     int      si_pkey;
+   sigval_t si_value;     void    *si_call_addr;
+   int      si_int;       int      si_syscall;
+   void    *si_ptr;       unsigned int si_arch;
+}
+
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Доставка сигналов во время системных вызовов}
+\begin{itemize}
+    \item Если сигнал прервал выполнение блокирующего сисколла, то есть два поведения
+    \item Если использован \mintinline{c}{sigaction} и в \mintinline{c}{sa_flags} есть \mintinline{c}{SA_RESTART}, то после того, как обработчик завершится, сисколл продолжит свою работу (syscall restarting)
+    \item Если не указан, то сисколл вернёт ошибку и \mintinline{c}{errno == EINTR}
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}{Ожидание сигналов: pause и sigsuspend}
+\begin{itemize}
+    \item \mintinline{c}{int pause(void)}
+    \item Блокируется до первой доставки сигналов (которые не заблокированы)
+    \onslide<2->\item \mintinline{c}{int sigsuspend(const sigset_t *mask)}
+    \onslide<2->\item Атомарно заменяет маску заблокированных сигналов на \mintinline{c}{mask} и ждёт первой доставки сигналов
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Сигналы: fork и execve}
+\begin{itemize}
+    \item \mintinline{c}{fork} сохраняет blocked mask и назначенные обработчики
+    \item execve сохраняет \textbf{только} маску заблокированных сигналов
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Почему сигналы -- это плохо?}
+\begin{itemize}
+    \item Почти невозможно обработать сигналы без race condition'ов
+    \item Обработчики сигналов могут вызываться во время работы других обработчиков
+    \item Посылка нескольких сигналов может привести к посылке только одног
+    \item Не используйте сигналы для IPC!
+    \item Допустимые использования -- graceful program termination или live configuration reload
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Почему лучше всегда использовать sigaction?}
+\begin{itemize}
+    \item Война поведений: BSD vs System-V
+    \item Стандарты определяются через макросы препроцессора: \mintinline{c}{_BSD_SOURCE} или \mintinline{c}{_GNU_SOURCE} (устаревший метод)
+    \item Либо через опции компилятора: \mintinline{c}{-std=gnu99} или \mintinline{c}{-std=gnu11}
+    \item В отличие от BSD, в System-V обработчик сигнала выполяется единожды, после чего сбрасывается на обработчик по умолчанию
+    \item В BSD обработчик сигнала не будет вызван, если в это время уже выполняется обработчик того же самого сигнала
+    \item В BSD используется syscall restarting, в System-V -- нет
+    \onslide<2->\item BSD: \mintinline{c}{SA_RESTART}
+    \onslide<2->\item System-V: \mintinline{c}{SA_NODEFER|SA_RESETHAND}
+    \onslide<3->\item Всегда лучше использовать sigaction для однозначности поведения программы!
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Бонус: RT signals}
+\begin{itemize}
+    \item При посылке сигналов учитывается их количество и порядок
+    \item Отделены от обычных: начинаются с \mintinline{c}{SIGRTMIN}, заканчиваются \mintinline{c}{SIGRTMAX}
+    \item Вместе с сигналом посылается специальная метаинформация (правда, только число), которую можно как-то использовать
+    \item Получить эту дополнительную информацию можно через \mintinline{c}{siginfo_t->si_value}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Бонус: RT signals}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{c}
+#include <signal.h>
+
+union sigval {
+    int    sival_int;
+    void*  sival_ptr;
+};
+
+int sigqueue(pid_t pid, int signum, const union sigval value);
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Бонус: обработка сигналов c помощью пайпов}
+\begin{itemize}
+    \item Иногда не хочется возиться с атомарными счёсчикам или хочется выполнить какие-то нетривиальные действия в обработчике
+    \item Или в обработчике нет какого-то нужного контекста (экземляра класса итд)
+    \item Помогает трюк с пайпами
+    \item В обработчике будем писать номер сигнала (или какую-то другую информацию) в пайп
+    \item В основной программе будем делать read на другой конец пайпа
+    \onslide<2->\item Важно, чтобы write-конец пайпа был с флагом \mintinline{c}{O_NONBLOCKING}!
+    \onslide<2->\item Иначе это может привести к дедлоку
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\center\Huge{Спасибо!}
+\end{frame}
+
+
+\end{document}

@@ -1,0 +1,267 @@
+\documentclass[10pt,pdf,hyperref={unicode}]{beamer}
+
+\usepackage[normalem]{ulem}
+\usepackage{qrcode}
+\usepackage{array}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{colortbl}
+\usepackage{minted}
+\usepackage{listings}
+\usepackage{tcolorbox}
+
+\setbeamertemplate{navigation symbols}{}
+
+\usetheme{default}
+
+\usepackage{array}
+\newcolumntype{L}[1]{>{\raggedright\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{C}[1]{>{\centering\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+
+\definecolor{shadecolor}{RGB}{210,210,210}
+\newcommand{\asm}[1]{\mintinline{gas}{#1}}
+
+\newcommand{\qrlinkframe}[2]{\begin{frame}{#1}
+\center\qrcode[hyperlink,height=75px]{#2}
+\end{frame}}
+
+\title{Семинар 20: мультиплексирование I/O-операций}
+\date{13 мая, 2020}
+
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}
+\Huge{Что делать, если нужно обработать несколько клиентов одновременно?}
+\end{frame}
+
+\begin{frame}{Apache MPM}
+\begin{itemize}
+    \item MPM = multiprocessing module
+    \item Модуль Apache, который распараллеливает обработку запросов
+    \item Три режима работы: prefork/worker и event
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Apache MPM: prefork model}
+\begin{itemize}
+    \item Для каждого соединения стартует новый процесс
+    \item Количество inflight-соединений = количество процессов
+    \item Поддерживает какое-то количество незанятых (spare) процессов — поэтому \emph{pre-}fork
+    \item Обеспечивал безопасность, однако тратил много ресурсов
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Apache MPM: prefork model}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{cpp}
+
+for (;;) {
+    int client_fd = accept(...);
+
+    while (children.size() > MaxRequestsNum) {
+        pid_t finished = wait(NULL);
+        children.erase(finished);
+    }
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        process_connection(client_fd);
+    }
+
+    children.push_back(pid);
+}
+
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Apache MPM: worker model}
+\begin{itemize}
+    \item Как сократить количество ресурсов?
+    \item Будем использовать треды вместо процессов!
+    \item Несколько процессов-контейнеров, чтобы один тред не мог сломать весь веб-сервер
+\end{itemize}
+\end{frame}
+
+\begin{frame}{HTTP keep alive}
+\begin{itemize}
+    \item На каждый HTTP-запрос устанавливается отдельное TCP-соединение
+    \item То есть на каждый запрос тратится дополнительно $\frac{3}{2} RTT$ на 3WH
+    \item Зачем закрывать соединение? Давайте делать следующий запрос в том же!
+    \item С HTTP/1.1 все соединения по-умолчанию считаются keep alive
+    \item prefork/worker model + keep alive = :(
+    \item Очень много idle-клиентов тратят слишком много ресурсов
+    \item Можно устроить DoS почти не тратя CPU
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Apache MPM: event model}
+\begin{itemize}
+    \item Основан на worker
+    \item Пусть будет один тред следит за всеми соединениями
+    \item Воркеры обрабатывают только уже отдельные запросы
+    \item Проблема: как в одном треде уследить за несколькими соединениями?
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Busy waiting}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{cpp}
+
+for (;;) {
+    for (int conn_fd : connections) {
+        char unused;
+        ssize_t res = recv(conn_fd, &unused, 1, MSG_PEEK);
+        if (res > 0) {
+            // что-то появилось в conn_fd,
+            // можно отдавать в воркера
+        } else if (errno == EAGAIN) {
+            // пока ничего нет :(
+        } else {
+            // res == 0 или ошибка (но не EAGAIN),
+            // можно закрыть соединение
+            close(conn_fd);
+        }
+    }
+}
+
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{I/O multiplexing}
+\begin{itemize}
+    \item \mintinline{c}{select}, \mintinline{c}{poll}, \mintinline{c}{epoll}
+    \item Различаются в деталях, но суть одна -- они ждут пока в \emph{хотя бы в одном} из файловых дескрипторов произойдёт какое-либо событие
+    \item Появились данные для чтения -- \mintinline{c}{POLLIN}
+    \item Появились данные для записи -- \mintinline{c}{POLLOUT}
+    \item Произошла ошибка (например, \mintinline{c}{EPIPE}) -- \mintinline{c}{POLLERR}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{I/O multiplexing: poll}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{cpp}
+#include <poll.h>
+
+struct pollfd {
+   int   fd;         /* file descriptor */
+   short events;     /* requested events */
+   short revents;    /* returned events */
+};
+
+int poll(struct pollfd *fds, nfds_t nfds, int timeout);
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{I/O multiplexing: select}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{cpp}
+#include <sys/select.h>
+
+int select(int nfds, fd_set *readfds, fd_set *writefds,
+          fd_set *exceptfds, struct timeval *timeout);
+
+void FD_CLR(int fd, fd_set *set);
+int  FD_ISSET(int fd, fd_set *set);
+void FD_SET(int fd, fd_set *set);
+void FD_ZERO(fd_set *set);
+
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{I/O multiplexing: poll \& select}
+\begin{itemize}
+    \item Самый старые интерфейсы: \mintinline{c}{poll} появился ещё в прошлом тысячелетии (2.1.x), а \mintinline{c}{select} в 00-ых (2.6.x)
+    \item Почти все POSIX-совместимые ОС реализуют select, самый переносимый вариант
+    \item \mintinline{c}{fd_set} ограничен 128 байтами, $\Rightarrow$ нельзя использовать для файловых дескрипторов больше 1024
+    \item Если файловых дескрипторов слишком много, то происходит много копирований (как в userspace, так и при вызове \mintinline{c}{poll})
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{I/O multiplexing: epoll}
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+\begin{minted}{cpp}
+#include <sys/epoll.h>
+
+struct epoll_event {
+    uint32_t     events;
+    union {
+        void    *ptr;
+        int      fd;
+        uint32_t u32;
+        uint64_t u64;
+    } data;
+};
+
+int epoll_create1(int flags);
+
+int epoll_ctl(int epfd, int op, int fd,
+                      struct epoll_event *event);
+
+int epoll_wait(int epfd, struct epoll_event *events,
+                      int maxevents, int timeout);
+
+\end{minted}
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{I/O multiplexing: epoll}
+\begin{itemize}
+    \item Немного меняется семантика: в epoll нужно регистрировать (\mintinline{c}{EPOLL_CTL_ADD}) файловые дескрипторы, а затем \mintinline{c}{epoll_wait} возвращает события, которые произошли с ними
+    \item С каждым файловым дескриптором можно ассоциировать какие-то данные (например, указатель на класс, которые отвечает за соединение)
+    \item Файловые дескрипторы можно подписывать на разные события: \mintinline{c}{EPOLLIN}, \mintinline{c}{EPOLLOUT}, \mintinline{c}{EPOLLHUP}, ...
+    \item Под файловыми дескрипторами могут скрываться сокеты, пайпы, а также специальные механизмы, вроде \mintinline{c}{eventfd} или \mintinline{c}{timerfd}
+    \item \textbf{ВАЖНО}: epoll на регулярных файлах всегда будет сразу выдавать готовые события
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}{epoll: edge-triggered vs level-triggered}
+\begin{itemize}
+    \item Разные способы оповещения о событиях для конкретных файловых дескрипторов
+    \item Level-triggered: оповещения будут приходить пока вы полностью не исчерпаете событие (например, не прочитаете весь read buffer)
+    \item Edge-triggered: оповещение будет приходить \textbf{только один раз}, как только вы его получите через \mintinline{c}{epoll_wait}, epoll о нём забудет
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Coroutines}
+\begin{itemize}
+    \item Почему бы внутри программы не попробовать самим управлять потоками?
+    \item Корутины (или green threads, или greenlets) -- треды, которые управляются программой
+    \item Обычно используется cooperative multitasking
+    \item Корутины работают, пока не дойдут до блокирующей I/O-операции, затем передают управление другим
+    \item Как только running корутин не осталось, корутиновый движок зависает на epoll/poll/select
+    \item Затем пробуждаются корутины и итерация повторяется
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\center\Huge{Спасибо!}
+\end{frame}
+
+
+\end{document}
